@@ -13,10 +13,36 @@ import java.util.Map;
 
 public class CurrencyConverter {
     private String currencyToConvert;
-    private float amountToConvert;
+    private String mainCurrency;
+    private double amountToConvert;
     private HttpClient httpClient; // Cliente HTTP
     private Gson gson; // Instancia de Gson
     private HttpResponse<String> response; // Respuesta HTTP
+
+    public CurrencyConverter(String currencyToConvert, String mainCurrency,double amountToConvert) throws IOException, InterruptedException {
+        this.currencyToConvert = currencyToConvert; // Moneda a convertir
+        this.mainCurrency = mainCurrency; //Moneda principal
+        this.amountToConvert = amountToConvert; // cantidad a Convertir
+
+        // Carga la clave de la API desde el archivo .env
+        Dotenv dotenv = Dotenv.load();
+        String myAPIKey = dotenv.get("API_KEY");
+        String urlPair = "https://v6.exchangerate-api.com/v6/"+myAPIKey+"/pair/"+mainCurrency+"/"+currencyToConvert+"/"+amountToConvert;
+
+        // Inicializa el cliente HTTP y Gson como variables de instancia
+        httpClient = HttpClient.newHttpClient();
+        gson = new GsonBuilder()
+                .setFieldNamingPolicy(FieldNamingPolicy.UPPER_CAMEL_CASE)
+                .setPrettyPrinting()
+                .create();
+
+        // Envía la solicitud HTTP y almacena la respuesta como variable de instancia
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(urlPair))
+                .build();
+
+        response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
 
     public CurrencyConverter(String currencyToConvert, float amountToConvert) throws IOException, InterruptedException {
         this.currencyToConvert = currencyToConvert; // Moneda a convertir
@@ -25,7 +51,7 @@ public class CurrencyConverter {
         // Carga la clave de la API desde el archivo .env
         Dotenv dotenv = Dotenv.load();
         String myAPIKey = dotenv.get("API_KEY");
-        String url = "https://v6.exchangerate-api.com/v6/" + myAPIKey + "/latest/"+currencyToConvert;
+        String url = "https://v6.exchangerate-api.com/v6/"+myAPIKey+"/latest/USD";
 
         // Inicializa el cliente HTTP y Gson como variables de instancia
         httpClient = HttpClient.newHttpClient();
@@ -42,32 +68,17 @@ public class CurrencyConverter {
         response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    public void getCurrencyDescription() {
-        // Puedes usar el mismo conjunto de datos para diferentes operaciones
+
+    public double convertCurrency(){
+        double result = 0;
         String json = response.body();
         Map<String, Object> data = gson.fromJson(json, Map.class);
 
-        // Extrae "conversion_rates" para obtener descripciones de monedas
-        Map<String, Double> conversionRates = (Map<String, Double>) data.get("conversion_rates");
+        double conversionRate = (double) data.get("conversion_rate");
 
-        System.out.println("¿Qué moneda quieres convertir?");
-        for (Map.Entry<String, Double> entry : conversionRates.entrySet()) {
-            switch (entry.getKey()) {
-                case "USD":
-                    System.out.println(entry.getKey() + " - Dólar Estadounidense");
-                    break;
+        result = amountToConvert * conversionRate;
 
-                case "EUR":
-                    System.out.println(entry.getKey() + " - Euro");
-                    break;
-
-                case "DOP":
-                    System.out.println(entry.getKey() + " - Peso Dominicano");
-                    break;
-            }
-        }
-
-
-
+        return result;
     }
+
 }

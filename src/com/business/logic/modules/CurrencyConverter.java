@@ -11,35 +11,39 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.HashMap;
 import java.util.Map;
 
 public class CurrencyConverter {
-    private String mainCurrency; // Moneda principal
-    private String currencyToConvert; // Moneda a convertir
-    private double amountToConvert; // Cantidad a convertir
-    private HttpClient httpClient; // Cliente HTTP
-    private Gson gson; // Instancia de Gson
+    private static final int SCALE = 2; // Escala para redondear
+    private static final String SUPPORTED_CURRENCIES = "USD, BRL, COP";
+
+    private final String mainCurrency; // Moneda principal
+    private final String currencyToConvert; // Moneda a convertir
+    private final double amountToConvert; // Cantidad a convertir
+    private final HttpClient httpClient; // Cliente HTTP
+    private final Gson gson; // Instancia de Gson
     private HttpResponse<String> response; // Respuesta HTTP
 
     public CurrencyConverter(String mainCurrency, String currencyToConvert, double amountToConvert) throws IOException, InterruptedException {
-        this.mainCurrency = mainCurrency; // Moneda principal
-        this.currencyToConvert = currencyToConvert; // Moneda a convertir
-        this.amountToConvert = amountToConvert; // Cantidad a convertir
+        validateCurrency(mainCurrency);
+        validateCurrency(currencyToConvert);
+        validateAmount(amountToConvert);
+
+        this.mainCurrency = mainCurrency;
+        this.currencyToConvert = currencyToConvert;
+        this.amountToConvert = amountToConvert;
 
         // Carga la clave de la API desde el archivo .env
         Dotenv dotenv = Dotenv.load();
         String apiKey = dotenv.get("API_KEY");
         String url = "https://v6.exchangerate-api.com/v6/" + apiKey + "/latest/" + mainCurrency;
 
-        // Inicializa el cliente HTTP y Gson como variables de instancia
         httpClient = HttpClient.newHttpClient();
         gson = new GsonBuilder()
                 .setFieldNamingPolicy(FieldNamingPolicy.UPPER_CAMEL_CASE)
                 .setPrettyPrinting()
                 .create();
 
-        // Envía la solicitud HTTP y almacena la respuesta como variable de instancia
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .build();
@@ -47,44 +51,38 @@ public class CurrencyConverter {
         response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    public Map<String, Double> getConversionRate() {
+    private void validateCurrency(String currency) {
+        if (!SUPPORTED_CURRENCIES.contains(currency)) {
+            throw new IllegalArgumentException("Unsupported currency code: " + currency);
+        }
+    }
+
+    private void validateAmount(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Amount must be greater than zero.");
+        }
+    }
+
+    public double getConversionRate() {
         String json = response.body();
         Map<String, Object> data = gson.fromJson(json, Map.class);
         Map<String, Double> conversionRates = (Map<String, Double>) data.get("conversion_rates");
 
-        Map<String, Double> rateForCurrency = new HashMap<>();
-
-        if (mainCurrency.equals("USD") || mainCurrency.equals("BRL") || mainCurrency.equals("COP")) {
-            for (Map.Entry<String, Double> entry : conversionRates.entrySet()) {
-                if (currencyToConvert.equals(entry.getKey())) {
-                    rateForCurrency.put(entry.getKey(), entry.getValue());
-                    break;
-                }
-            }
-        } else {
-            System.out.println("This program doesn't yet support that currency code.");
+        if (!conversionRates.containsKey(currencyToConvert)) {
+            throw new IllegalArgumentException("Conversion rate not found for: " + currencyToConvert);
         }
 
-        return rateForCurrency;
+        return conversionRates.get(currencyToConvert);
     }
 
     public double convertCurrency() {
-        Map<String, Double> exchangeRate = getConversionRate();
-        double result = 0;
+        double rate = getConversionRate();
+        BigDecimal amountBigDecimal = BigDecimal.valueOf(amountToConvert);
+        BigDecimal rateBigDecimal = BigDecimal.valueOf(rate);
 
-        for (Map.Entry<String, Double> entry : exchangeRate.entrySet()) {
-            // Convertir el resultado a BigDecimal para mayor precisión
-            BigDecimal amountBigDecimal = BigDecimal.valueOf(amountToConvert);
-            BigDecimal rateBigDecimal = BigDecimal.valueOf(entry.getValue());
+        BigDecimal resultBigDecimal = amountBigDecimal.multiply(rateBigDecimal);
+        resultBigDecimal = resultBigDecimal.setScale(SCALE, RoundingMode.HALF_UP);
 
-            // Calcular el resultado y redondear a 2 decimales
-            BigDecimal resultBigDecimal = amountBigDecimal.multiply(rateBigDecimal);
-            resultBigDecimal = resultBigDecimal.setScale(2, RoundingMode.HALF_UP);
-
-            // Convertir de nuevo a double
-            result = resultBigDecimal.doubleValue();
-        }
-
-        return result;
+        return resultBigDecimal.doubleValue();
     }
 }
